@@ -2,17 +2,18 @@ import cv2
 import numpy as np
 
 # ==== CONFIG ====
-WINDOW_NAME = "Imagine (click stânga = include, Shift+drag = regiune)"
-PREVIEW_NAME = "Preview pista"
-PANEL_NAME = "Culori selectate"
+WINDOW_NAME = "Image (Left-click = include, Shift+drag = region)"
+PREVIEW_NAME = "Track Preview"
+PANEL_NAME = "Selected Colors"
 FLOOD_PREVIEW = "Flood Preview"
 FLOOD_PANEL = "Flood Points"
 FILENAME = "./images/raw_image_3_formula_1.png"
 
+
 # ==== INIT ====
 img = cv2.imread(FILENAME)
 if img is None:
-    raise ValueError("Nu am putut încărca imaginea. Verifică numele fișierului!")
+    raise ValueError("Failed to load image. Please check the filename!")
 
 included_colors = []
 mask = np.zeros(img.shape[:2], dtype=np.uint8)
@@ -45,6 +46,7 @@ flood_seeds = []  # list of (x, y)
 flood_mode_fixed = False
 flood_result_mask = np.zeros(img.shape[:2], np.uint8)
 flood_ker = 3
+
 
 # ==== CORE FUNCTIONS ====
 def build_mask():
@@ -80,8 +82,6 @@ def build_mask():
     else:
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
-
-
 
     result = cv2.bitwise_and(img, img, mask=mask)
 
@@ -149,8 +149,6 @@ def apply_flood_morph():
 
     flood_result_mask = cv2.morphologyEx(flood_result_mask, cv2.MORPH_OPEN, kernel_open)
     flood_result_mask = cv2.morphologyEx(flood_result_mask, cv2.MORPH_CLOSE, kernel_close)
-
-
 
 
 def update_flood_preview():
@@ -248,104 +246,107 @@ def panel_click(event, x, y, flags, param):
             return
 
 
-# ==== SETUP ====
-cv2.namedWindow(WINDOW_NAME)
-cv2.namedWindow(PREVIEW_NAME)
-cv2.namedWindow(PANEL_NAME)
-cv2.namedWindow(FLOOD_PREVIEW)
-cv2.namedWindow(FLOOD_PANEL)
+def main():
+    # ==== SETUP ====
+    cv2.namedWindow(WINDOW_NAME)
+    cv2.namedWindow(PREVIEW_NAME)
+    cv2.namedWindow(PANEL_NAME)
+    cv2.namedWindow(FLOOD_PREVIEW)
+    cv2.namedWindow(FLOOD_PANEL)
 
-cv2.setMouseCallback(WINDOW_NAME, image_click)
-cv2.setMouseCallback(PANEL_NAME, panel_click)
-cv2.setMouseCallback(PREVIEW_NAME, flood_click_in_preview)
-cv2.setMouseCallback(FLOOD_PANEL, flood_panel_click)
+    cv2.setMouseCallback(WINDOW_NAME, image_click)
+    cv2.setMouseCallback(PANEL_NAME, panel_click)
+    cv2.setMouseCallback(PREVIEW_NAME, flood_click_in_preview)
+    cv2.setMouseCallback(FLOOD_PANEL, flood_panel_click)
 
-# Trackbars
-# ==== TRACKBARS (instant update with lambdas) ====
+    # Trackbars
+    # ==== TRACKBARS (instant update with lambdas) ====
+    cv2.createTrackbar(
+        "Tol Inc", PREVIEW_NAME, tol_include, 100,
+        lambda v: (globals().update(tol_include=v), update_preview())
+    )
 
-cv2.createTrackbar(
-    "Tol Inc", PREVIEW_NAME, tol_include, 100,
-    lambda v: (globals().update(tol_include=v), update_preview())
-)
+    cv2.createTrackbar(
+        "Open Ker", PREVIEW_NAME, ker_open, 20,
+        lambda v: (globals().update(ker_open=v), update_preview())
+    )
 
-cv2.createTrackbar(
-    "Open Ker", PREVIEW_NAME, ker_open, 20,
-    lambda v: (globals().update(ker_open=v), update_preview())
-)
+    cv2.createTrackbar(
+        "Close Ker", PREVIEW_NAME, ker_close, 20,
+        lambda v: (globals().update(ker_close=v), update_preview())
+    )
 
-cv2.createTrackbar(
-    "Close Ker", PREVIEW_NAME, ker_close, 20,
-    lambda v: (globals().update(ker_close=v), update_preview())
-)
+    cv2.createTrackbar(
+        "Flood Tol", FLOOD_PREVIEW, flood_tolerance, 100,
+        lambda v: (globals().update(flood_tolerance=v), flood_select_from_result())
+    )
 
-cv2.createTrackbar(
-    "Flood Tol", FLOOD_PREVIEW, flood_tolerance, 100,
-    lambda v: (globals().update(flood_tolerance=v), flood_select_from_result())
-)
+    cv2.createTrackbar(
+        "Flood Open", FLOOD_PREVIEW, flood_ker_open, 20,
+        lambda v: (globals().update(flood_ker_open=v), flood_select_from_result())
+    )
 
-cv2.createTrackbar(
-    "Flood Open", FLOOD_PREVIEW, flood_ker_open, 20,
-    lambda v: (globals().update(flood_ker_open=v), flood_select_from_result())
-)
+    cv2.createTrackbar(
+        "Flood Close", FLOOD_PREVIEW, flood_ker_close, 20,
+        lambda v: (globals().update(flood_ker_close=v), flood_select_from_result())
+    )
+    
+    cv2.imshow(WINDOW_NAME, img)
+    update_preview()
+    update_flood_preview()
 
-cv2.createTrackbar(
-    "Flood Close", FLOOD_PREVIEW, flood_ker_close, 20,
-    lambda v: (globals().update(flood_ker_close=v), flood_select_from_result())
-)
+    print("✅ Controls:")
+    print("  - Left click: include color")
+    print("  - Shift+drag: select region")
+    print("  - o: toggle open/close order")
+    print("  - r: toggle region restriction")
+    print("  - s: save contoured image")
+    print("  - q: quit")
+    print("  - f: toggle flood mode (fixed/floating)")
+    print("  - Click in the Track Preview window to add flood seeds")
+
+    # Main loop
+    while True:
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord('s'):
+            # Combine color result with flood mask
+            masked = cv2.bitwise_and(result, result, mask=flood_result_mask)
+
+            # Convert to grayscale for Otsu thresholding
+            gray = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
+
+            # Apply Otsu threshold to get crisp black–white result
+            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+            # Apply a final morphological closing (kernel size 1 -> effectively 3x3)
+            kernel_final = np.ones((3, 3), np.uint8)
+            binary_closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_final)
+
+            # Save the final image
+            cv2.imwrite("track_binary.png", binary_closed)
+            print("💾 Saved track_binary.png (Otsu black–white with final closing)")
+        
+        elif key == ord('o'):
+            morph_order = "close_open" if morph_order == "open_close" else "open_close"
+            print(f"🔁 Morph order: {morph_order}")
+            update_preview()
+
+        elif key == ord('r'):
+            use_region_restrict = not use_region_restrict
+            print(f"🟩 Region restriction: {'ON' if use_region_restrict else 'OFF'}")
+            update_preview()
+
+        elif key == ord('f'):
+            flood_mode_fixed = not flood_mode_fixed
+            print(f"💧 Flood mode: {'FIXED' if flood_mode_fixed else 'FLOAT'}")
+            flood_select_from_result()
+
+        elif key == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
 
 
-cv2.imshow(WINDOW_NAME, img)
-update_preview()
-update_flood_preview()
-
-print("✅ Controls:")
-print("  - Left click: include color")
-print("  - Shift+drag: select region")
-print("  - o: toggle open/close order")
-print("  - r: toggle region restriction")
-print("  - s: save contoured image")
-print("  - q: quit")
-print("  - f: toggle flood mode (fixed/floating)")
-print("  - Click in Preview pista to add flood seeds")
-
-while True:
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord('s'):
-        # Combine color result with flood mask
-        masked = cv2.bitwise_and(result, result, mask=flood_result_mask)
-
-        # Convert to grayscale for Otsu thresholding
-        gray = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
-
-        # Apply Otsu threshold to get crisp black–white result
-        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # Apply a final morphological closing (kernel size 1 -> effectively 3x3)
-        kernel_final = np.ones((3, 3), np.uint8)
-        binary_closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_final)
-
-        # Save the final image
-        cv2.imwrite("track_binary.png", binary_closed)
-        print("💾 Saved track_binary.png (Otsu black–white with final closing)")
-
-
-    elif key == ord('o'):
-        morph_order = "close_open" if morph_order == "open_close" else "open_close"
-        print(f"🔁 Morph order: {morph_order}")
-        update_preview()
-
-    elif key == ord('r'):
-        use_region_restrict = not use_region_restrict
-        print(f"🟩 Region restriction: {'ON' if use_region_restrict else 'OFF'}")
-        update_preview()
-
-    elif key == ord('f'):
-        flood_mode_fixed = not flood_mode_fixed
-        print(f"💧 Flood mode: {'FIXED' if flood_mode_fixed else 'FLOAT'}")
-        flood_select_from_result()
-
-    elif key == ord('q'):
-        break
-
-cv2.destroyAllWindows()
+if __name__=="__main__":
+    main()
