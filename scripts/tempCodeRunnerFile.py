@@ -48,7 +48,7 @@ def sort_skeleton_points_final(skeleton_img):
 # ------------------------------------------------------------
 
 def get_perpendicular_segments(image_path):
-    step = 2
+    step = 3
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         print("Error: Image not found.")
@@ -123,43 +123,29 @@ def get_perpendicular_segments(image_path):
             'p2': list(p2) 
         })
 
-    # --- 2. ITERATIVE POST-PROCESSING CHECK ---
-    # We repeat the check until no changes are made in a full pass
-    
-    iteration = 0
-    max_iterations = 100 # Safety break to prevent infinite loops (though unlikely)
+    # --- 2. POST-PROCESSING CHECK (Updated) ---
     count = len(raw_segments)
-
-    while iteration < max_iterations:
-        changes_made = False
+    for k in range(count):
+        curr_idx = k
+        next_idx = (k + 1) % count
         
-        for k in range(count):
-            curr_idx = k
-            next_idx = (k + 1) % count
-            
-            curr_seg = raw_segments[curr_idx]
-            next_seg = raw_segments[next_idx]
-            
-            ref_tangent = curr_seg['tangent']
-
-            # --- Check Side 1 (p1) ---
-            v1 = np.array(next_seg['p1']) - np.array(curr_seg['p1'])
-            # If dot product < 0, the next point is "behind" current point relative to flow
-            if np.dot(v1, ref_tangent) < -1e-5: # Use small epsilon for float stability
-                next_seg['p1'] = list(curr_seg['p1']) # Snap next to current
-                changes_made = True
-
-            # --- Check Side 2 (p2) ---
-            v2 = np.array(next_seg['p2']) - np.array(curr_seg['p2'])
-            if np.dot(v2, ref_tangent) < -1e-5:
-                next_seg['p2'] = list(curr_seg['p2']) # Snap next to current
-                changes_made = True
+        curr_seg = raw_segments[curr_idx]
+        next_seg = raw_segments[next_idx]
         
-        if not changes_made:
-            print(f"Converged after {iteration} iterations.")
-            break
-            
-        iteration += 1
+        ref_tangent = curr_seg['tangent']
+
+        # Check Side 1 (p1)
+        v1 = np.array(next_seg['p1']) - np.array(curr_seg['p1'])
+        # If the next point is "behind" the current point relative to the track flow
+        if np.dot(v1, ref_tangent) < 0:
+            # Move the next point to the current point (the "previous" valid spot in the sequence)
+            # We use list() to create a copy of the coordinates
+            next_seg['p1'] = list(curr_seg['p1'])
+
+        # Check Side 2 (p2)
+        v2 = np.array(next_seg['p2']) - np.array(curr_seg['p2'])
+        if np.dot(v2, ref_tangent) < 0:
+            next_seg['p2'] = list(curr_seg['p2'])
 
     # --- 3. FINAL DRAWING ---
     segments_data = []
@@ -183,11 +169,11 @@ def get_perpendicular_segments(image_path):
     return output_img, segments_data
 
 # Run
-img_result, data = get_perpendicular_segments('track_binary.png')
+img_result, data = get_perpendicular_segments('track_binary1.png')
 
 if img_result is not None:
     plt.figure(figsize=(12, 10))
     plt.imshow(cv2.cvtColor(img_result, cv2.COLOR_BGR2RGB))
-    plt.title(f"Track Analysis - Iterative No-Overlap")
+    plt.title(f"Track Analysis - Non-Intersecting")
     plt.axis('off')
     plt.show()
