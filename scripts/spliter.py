@@ -3,6 +3,7 @@ import numpy as np
 from skimage.morphology import skeletonize
 import matplotlib.pyplot as plt
 import networkx as nx
+import csv  # <--- Added for CSV export
 
 # --- GRAPH-BASED SORT FUNCTION (Unchanged) ---
 def sort_skeleton_points_final(skeleton_img):
@@ -48,7 +49,7 @@ def sort_skeleton_points_final(skeleton_img):
 # ------------------------------------------------------------
 
 def get_perpendicular_segments(image_path):
-    step = 2
+    step = 13
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         print("Error: Image not found.")
@@ -117,6 +118,7 @@ def get_perpendicular_segments(image_path):
         p2 = cast_ray(cx, cy, -normal[0], -normal[1])
 
         raw_segments.append({
+            'id': i,  # Keep track of original index
             'center': (cx, cy),
             'tangent': tangent,
             'p1': list(p1), 
@@ -124,10 +126,8 @@ def get_perpendicular_segments(image_path):
         })
 
     # --- 2. ITERATIVE POST-PROCESSING CHECK ---
-    # We repeat the check until no changes are made in a full pass
-    
     iteration = 0
-    max_iterations = 100 # Safety break to prevent infinite loops (though unlikely)
+    max_iterations = 100
     count = len(raw_segments)
 
     while iteration < max_iterations:
@@ -142,17 +142,16 @@ def get_perpendicular_segments(image_path):
             
             ref_tangent = curr_seg['tangent']
 
-            # --- Check Side 1 (p1) ---
+            # Check Side 1 (p1)
             v1 = np.array(next_seg['p1']) - np.array(curr_seg['p1'])
-            # If dot product < 0, the next point is "behind" current point relative to flow
-            if np.dot(v1, ref_tangent) < -1e-5: # Use small epsilon for float stability
-                next_seg['p1'] = list(curr_seg['p1']) # Snap next to current
+            if np.dot(v1, ref_tangent) < -1e-5: 
+                next_seg['p1'] = list(curr_seg['p1']) 
                 changes_made = True
 
-            # --- Check Side 2 (p2) ---
+            # Check Side 2 (p2)
             v2 = np.array(next_seg['p2']) - np.array(curr_seg['p2'])
             if np.dot(v2, ref_tangent) < -1e-5:
-                next_seg['p2'] = list(curr_seg['p2']) # Snap next to current
+                next_seg['p2'] = list(curr_seg['p2'])
                 changes_made = True
         
         if not changes_made:
@@ -161,10 +160,10 @@ def get_perpendicular_segments(image_path):
             
         iteration += 1
 
-    # --- 3. FINAL DRAWING ---
-    segments_data = []
+    # --- 3. FINAL DRAWING & DATA PREP ---
+    csv_data = [] # List to store all point data
     
-    for seg in raw_segments:
+    for idx, seg in enumerate(raw_segments):
         cx, cy = seg['center']
         tangent = seg['tangent']
         p1 = tuple(seg['p1'])
@@ -178,16 +177,32 @@ def get_perpendicular_segments(image_path):
         cv2.line(output_img, p1, p2, (255, 0, 0), 1)
 
         width = np.linalg.norm(np.array(p1) - np.array(p2))
-        segments_data.append([int(cx), int(cy), float(width)])
+        
+        # Add to CSV list: Index, CenterX, CenterY, P1_X, P1_Y, P2_X, P2_Y, Width
+        csv_data.append([idx, cx, cy, p1[0], p1[1], p2[0], p2[1], width])
 
-    return output_img, segments_data
+    return output_img, csv_data
 
 # Run
-img_result, data = get_perpendicular_segments('track_binary.png')
+img_result, track_data = get_perpendicular_segments('track_binary1.png')
+
+# --- SAVE TO CSV ---
+if track_data:
+    csv_filename = "track_data.csv"
+    print(f"Saving {len(track_data)} points to {csv_filename}...")
+    
+    with open(csv_filename, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Header
+        writer.writerow(["Index", "Center_X", "Center_Y", "P1_X", "P1_Y", "P2_X", "P2_Y", "Width_Px"])
+        # Data
+        writer.writerows(track_data)
+        
+    print("CSV save complete.")
 
 if img_result is not None:
     plt.figure(figsize=(12, 10))
     plt.imshow(cv2.cvtColor(img_result, cv2.COLOR_BGR2RGB))
-    plt.title(f"Track Analysis - Iterative No-Overlap")
+    plt.title(f"Track Analysis - Saved to CSV")
     plt.axis('off')
     plt.show()
